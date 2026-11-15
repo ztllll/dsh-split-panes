@@ -16,11 +16,12 @@
  */
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
+import type { SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
-  HostObservable, SlotRendererHost, SlotScopeAdapter, StandardSourceBinding, StoredEntry,
+  HostObservable, SlotRendererHost, StandardSourceBinding, StoredEntry,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { createPaneHost } from './pane-host.ts'
-import { retainPaneSession, type PaneSessionReference } from './pane-session.ts'
+import { mainSessionId, retainPaneSession } from './pane-session.ts'
 import { createSlotRenderer } from './vendor/renderer/scoped-slots.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
@@ -35,6 +36,35 @@ export interface PaneRenderDeps {
   readonly baseHost: () => SlotRendererHost
   /** Entries never elected in a pane (this plugin's own conversation shadow). */
   readonly excluded: (entry: StoredEntry) => boolean
+  /** A pane's hero opened `sessionId`: bind it back to that pane. */
+  readonly onPaneSessionOpened: (paneId: string, sessionId: SessionId) => void
+}
+
+/**
+ * Report the Session a pane's hero `selectWorkspace` opened — including a
+ * REUSED blank, which leaves the global selection unchanged and so is
+ * invisible to the selection-routing effect.
+ */
+export function paneFactoryInject(
+  ctx: Context,
+  paneId: string,
+  report: PaneRenderDeps['onPaneSessionOpened'],
+): (name: string, face: Record<string, unknown>) => Record<string, unknown> {
+  return (name, face) => {
+    const selectWorkspace = face['selectWorkspace']
+    if (name !== 'conversation.content' || typeof selectWorkspace !== 'function') return face
+    return {
+      ...face,
+      // On resolve, ui-workspace's replaceMain has retained the opened Session
+      // as the main view (new or reused), so the main Session IS the result.
+      selectWorkspace: async (workspaceId: unknown) => {
+        const result: unknown = await (selectWorkspace as (id: unknown) => Promise<unknown>)(workspaceId)
+        const opened = mainSessionId(ctx.sessions.list.getSnapshot())
+        if (opened !== undefined) report(paneId, opened)
+        return result
+      },
+    }
+  }
 }
 
 /** One pane's props. */
@@ -46,18 +76,13 @@ export interface PaneConversationProps {
   readonly paneId: string
 }
 
-/** The installed `session` scope adapter (bindingSource / renderArea). */
-function sessionAdapter(ctx: Context): SlotScopeAdapter {
-  return (ctx.uiSession as unknown as { adapter: SlotScopeAdapter }).adapter
-}
-
 /**
  * Hold a SessionReference for the pane's Session while it is shown.
  * Retained in an effect, so React StrictMode double-invocation releases the
  * first reference before taking the second.
  */
-function usePaneReference(ctx: Context, sessionId: string | undefined): PaneSessionReference | undefined {
-  const [reference, setReference] = useState<PaneSessionReference | undefined>(undefined)
+function usePaneReference(ctx: Context, sessionId: string | undefined): SessionReference | undefined {
+  const [reference, setReference] = useState<SessionReference | undefined>(undefined)
   useEffect(() => {
     if (sessionId === undefined) {
       setReference(undefined)
@@ -80,10 +105,10 @@ export const PaneConversation = memo(function PaneConversation({
 }: PaneConversationProps): ReactNode {
   const { ctx } = deps
   const reference = usePaneReference(ctx, sessionId)
-  const adapter = sessionAdapter(ctx)
+  const adapter = ctx.uiSession.adapter
 
   const binding: HostObservable<StandardSourceBinding> = useMemo(
-    () => adapter.bindingSource(reference?.reference as never),
+    () => adapter.bindingSource(reference),
     [adapter, reference],
   )
 
@@ -92,6 +117,7 @@ export const PaneConversation = memo(function PaneConversation({
     adapter,
     binding,
     excluded: deps.excluded,
+    wrapFactoryInject: paneFactoryInject(ctx, paneId, deps.onPaneSessionOpened),
     onCrash: (key, entry, error) => {
       console.error(`[dsh-split-panes] pane ${paneId} occupant crashed in '${key}':`, error, entry.options)
     },

@@ -1,0 +1,77 @@
+// @vitest-environment node
+/**
+ * A pane's hero `selectWorkspace` must bind the opened Session back to that
+ * pane — including when ui-workspace REUSES the current blank Session, which
+ * leaves the global selection unchanged (regression: the pane stayed on the
+ * absent hero). Exercised through the pane host's Factory view, the same path
+ * the vendored renderer takes (`factoryOf(name).inject(...)`).
+ */
+import { describe, expect, it } from 'vitest'
+import type { SlotRendererHost, StoredFactory } from '@deepseek-ai/dsh-client-ui-slots'
+import { createPaneHost } from '../src/client/pane-host.ts'
+import { paneFactoryInject } from '../src/client/PaneConversation.tsx'
+
+/** Session list whose main view is `main` (retainedBy.mainView > 0). */
+function listWith(main: string | undefined, ids: string[]) {
+  return {
+    ids,
+    byId: Object.fromEntries(ids.map(id => [id, { id, retainedBy: id === main ? { mainView: 1 } : {} }])),
+  }
+}
+
+function harness(opensSession: string, initialMain: string | undefined) {
+  let list = listWith(initialMain, [opensSession, 'other'])
+  const ctx = { sessions: { list: { getSnapshot: () => list } } }
+  const content: StoredFactory = {
+    name: 'conversation.content',
+    component: () => null,
+    scope: 'session-maybe',
+    // Stock ui-conversation inject: navigation retains the target as main view.
+    inject: () => ({
+      selectWorkspace: async () => { list = listWith(opensSession, [opensSession, 'other']) },
+    }),
+  }
+  const calls: string[] = []
+  const base = {
+    factoryOf: (name: string) => (name === content.name ? content : undefined),
+    isFactoryLive: (definition: StoredFactory) => definition === content,
+    retainFactoryOccurrence: (definition: StoredFactory) => { calls.push(definition === content ? 'retain:core' : 'retain:COPY'); return () => {} },
+    factoryStoreOf: (definition: StoredFactory) => { calls.push(definition === content ? 'store:core' : 'store:COPY'); return undefined },
+  } as Partial<SlotRendererHost> as SlotRendererHost
+  const adopted: Array<[string, string]> = []
+  const absent = { getSnapshot: () => ({ key: undefined, hooks: {}, keyedHooks: {}, props: {} }), subscribe: () => () => {} }
+  const host = createPaneHost({
+    base,
+    adapter: { current: absent, bindingSource: () => absent } as never,
+    binding: absent as never,
+    wrapFactoryInject: paneFactoryInject(ctx as never, 'pane-2', (pane, id) => { adopted.push([pane, id]) }),
+  })
+  return { host, adopted, calls, content }
+}
+
+describe('pane hero adoption', () => {
+  it('binds a REUSED blank Session (selection unchanged) back to the originating pane', async () => {
+    const { host, adopted } = harness('blank-S', 'blank-S')
+    const face = host.factoryOf('conversation.content')!.inject!() as { selectWorkspace: (id: string) => Promise<void> }
+    await face.selectWorkspace('ws')
+    expect(adopted).toEqual([['pane-2', 'blank-S']])
+  })
+
+  it('binds a newly created Session back to the originating pane', async () => {
+    const { host, adopted } = harness('new-N', 'other')
+    const face = host.factoryOf('conversation.content')!.inject!() as { selectWorkspace: (id: string) => Promise<void> }
+    await face.selectWorkspace('ws')
+    expect(adopted).toEqual([['pane-2', 'new-N']])
+  })
+
+  it('identity-keyed Factory members still reach the core definition', () => {
+    const { host, calls, content } = harness('x', undefined)
+    const copy = host.factoryOf('conversation.content')!
+    expect(copy).not.toBe(content)
+    expect(host.factoryOf('conversation.content')).toBe(copy)
+    expect(host.isFactoryLive(copy)).toBe(true)
+    host.retainFactoryOccurrence(copy, {})
+    host.factoryStoreOf(copy, undefined, {})
+    expect(calls).toEqual(['retain:core', 'store:core'])
+  })
+})

@@ -16,9 +16,9 @@
  *   subscribe/getVersion            → ledger + pane-local abdication bumps
  *   scope('session'|'session-maybe')→ THIS pane's binding source
  */
-import type { StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
+import type { StoredEntry, StoredFactory } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  HostObservable, SessionAreaProps, SlotRendererHost, SlotScopeAdapter, StandardSourceBinding,
+  HostObservable, SlotRendererHost, SlotScopeAdapter, StandardSourceBinding,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { PaneRoot } from './PaneRoot.tsx'
 
@@ -37,6 +37,11 @@ export interface PaneHostOptions {
   readonly excluded?: ((entry: StoredEntry) => boolean) | undefined
   /** Diagnostic hook for pane-side occupant crashes. */
   readonly onCrash?: ((key: string, entry: StoredEntry, error: unknown) => void) | undefined
+  /**
+   * Pane-local view of a Factory's inject face (e.g. to learn which Session a
+   * hero's `selectWorkspace` opened). Omitted: Factories render unchanged.
+   */
+  readonly wrapFactoryInject?: ((name: string, face: Record<string, unknown>) => Record<string, unknown>) | undefined
 }
 
 /** The synthetic 'root' occupant: a one-line dispatch into 'main.conversation'. */
@@ -65,11 +70,12 @@ export function registryHostFace(slots: unknown): SlotRendererHost {
   return face.call(slots)
 }
 
-/** The cell one entry occupies under its slot's kind (mirrors SlotCore). */
-function cellOf(kind: string, entry: StoredEntry): string {
-  if (kind === 'keyed') return entry.options.key ?? ''
-  if (kind === 'list') return entry.options.id ?? ''
-  return ''
+/** The cell one entry occupies under its slot's kind (mirrors SlotCore.entriesOfSlot). */
+function cellOf(kind: string, entry: StoredEntry): string | undefined {
+  if (kind === 'keyed') return entry.options.key
+  if (kind === 'list') return entry.options.id
+  if (kind === 'hoc') return JSON.stringify([entry.options.key, entry.options.id])
+  return undefined
 }
 
 /**
@@ -97,7 +103,13 @@ export function createPaneHost(options: PaneHostOptions): SlotRendererHost {
     }
   }
 
-  /** Elect one winner per cell over the raw ledger, honouring pane exclusions. */
+  /**
+   * Core election (SlotCore.entriesOfSlot) with pane-hidden entries also
+   * skipped. The core ledger is already priority-sorted, so the head of each
+   * cell is its first entry that neither the core nor this pane retired. An
+   * entry the core abdicated is exactly one that precedes its cell's core
+   * winner in ledger order.
+   */
   const winnersOf = (key: string): readonly StoredEntry[] => {
     const all = base.entriesOf(key)
     const hidden = (entry: StoredEntry): boolean => abdicated.has(entry) || excluded(entry)
@@ -105,41 +117,33 @@ export function createPaneHost(options: PaneHostOptions): SlotRendererHost {
     if (!all.some(hidden)) return base.entriesOfSlot(key)
     const kind = base.specOf(key)?.kind ?? 'single'
     if (kind === 'chain') return all.filter(entry => !hidden(entry))
-    const order = new Map<StoredEntry, number>()
-    all.forEach((entry, index) => { order.set(entry, index) })
-    const best = new Map<string, StoredEntry>()
+    const coreHead = new Map<string | undefined, StoredEntry>()
+    for (const entry of base.entriesOfSlot(key)) coreHead.set(cellOf(kind, entry), entry)
+    const reachedCoreHead = new Set<string | undefined>()
+    const seen = new Set<string | undefined>()
+    const heads: StoredEntry[] = []
     for (const entry of all) {
-      if (hidden(entry)) continue
       const cell = cellOf(kind, entry)
-      const incumbent = best.get(cell)
-      if (incumbent === undefined) {
-        best.set(cell, entry)
-        continue
-      }
-      const challenger = entry.options.priority ?? 0
-      const holding = incumbent.options.priority ?? 0
-      if (challenger < holding
-        || (challenger === holding && (order.get(entry) ?? 0) < (order.get(incumbent) ?? 0))) {
-        best.set(cell, entry)
-      }
+      if (coreHead.get(cell) === entry) reachedCoreHead.add(cell)
+      // Core-abdicated: ahead of the cell's core winner (or the cell has none).
+      if (!reachedCoreHead.has(cell)) continue
+      if (seen.has(cell) || hidden(entry)) continue
+      seen.add(cell)
+      heads.push(entry)
     }
-    return [...best.values()]
+    return heads
   }
 
+  // Methods are re-bound to the core adapter so `this` stays the adapter.
   const paneScope: SlotScopeAdapter = {
     current: binding,
-    bindingSource: target => adapter.bindingSource(target),
-    ...(adapter.renderArea === undefined
-      ? {}
-      : { renderArea: (value: StandardSourceBinding, props: SessionAreaProps) => adapter.renderArea!(value, props) }),
+    bindingSource: adapter.bindingSource.bind(adapter),
+    ...(adapter.renderArea === undefined ? {} : { renderArea: adapter.renderArea.bind(adapter) }),
   }
 
-  // Delegate everything, then override the pane decisions. A getter keeps
-  // `locale` live (the core swaps the face under HMR).
-  const host: SlotRendererHost = Object.create(base, {
-    locale: { get: () => base.locale, enumerable: true },
-  })
-  return Object.assign(host, {
+  // Delegate everything through the prototype (the base's live `locale`
+  // getter included), then override the pane decisions.
+  return Object.assign(Object.create(base) as SlotRendererHost, {
     subscribe(key: string, fn: () => void): () => void {
       let set = localListeners.get(key)
       if (set === undefined) {
@@ -172,11 +176,60 @@ export function createPaneHost(options: PaneHostOptions): SlotRendererHost {
       bump(key)
     },
     specOf: (key: string) => (key === 'root' ? ROOT_SPEC : base.specOf(key)) as ReturnType<SlotRendererHost['specOf']>,
-    storeOf: (entry: StoredEntry, scopeBinding: Parameters<SlotRendererHost['storeOf']>[1]) =>
-      entry === PANE_ROOT_ENTRY ? undefined : base.storeOf(entry, scopeBinding),
     scope: (scope: Parameters<SlotRendererHost['scope']>[0]) =>
       (scope === 'session' || scope === 'session-maybe' ? paneScope : base.scope(scope)),
+    ...factoryOverrides(base, options.wrapFactoryInject),
   })
+}
+
+/**
+ * Hand the renderer a per-pane copy of each Factory definition whose inject
+ * face passes through `wrap`. The copy is a distinct object, so every member
+ * that keys on definition identity (liveness, store axes, occurrence
+ * retention, crash reports) is translated back to the core's original.
+ * @param base - registry host face.
+ * @param wrap - pane-local inject transform, or undefined for no overrides.
+ * @returns host members to overlay.
+ */
+function factoryOverrides(
+  base: SlotRendererHost,
+  wrap: PaneHostOptions['wrapFactoryInject'],
+): Partial<SlotRendererHost> {
+  if (wrap === undefined) return {}
+  const copies = new WeakMap<StoredFactory, StoredFactory>()
+  const originals = new WeakMap<StoredFactory, StoredFactory>()
+  const original = (definition: StoredFactory): StoredFactory => originals.get(definition) ?? definition
+  const copyOf = (definition: StoredFactory): StoredFactory => {
+    const inject = definition.inject
+    if (inject === undefined) return definition
+    let copy = copies.get(definition)
+    if (copy === undefined) {
+      copy = {
+        ...definition,
+        inject: ((...args: never[]) => wrap(definition.name, inject(...args))) as StoredFactory['inject'],
+      }
+      copies.set(definition, copy)
+      originals.set(copy, definition)
+    }
+    return copy
+  }
+  return {
+    factoryOf: (name) => {
+      const definition = base.factoryOf(name)
+      return definition === undefined ? undefined : copyOf(definition)
+    },
+    isFactoryLive: definition => base.isFactoryLive(original(definition)),
+    factoryStoreOf: (definition, scopeBinding, occurrence) =>
+      base.factoryStoreOf(original(definition), scopeBinding, occurrence),
+    retainFactoryOccurrence: (definition, occurrence) =>
+      base.retainFactoryOccurrence(original(definition), occurrence),
+    reportFactoryError: (name, registration, error) => {
+      const target = 'scope' in registration && !('options' in registration)
+        ? original(registration)
+        : registration
+      base.reportFactoryError(name, target, error)
+    },
+  }
 }
 
 /** The synthetic root entry a pane host answers for (exposed for tests). */

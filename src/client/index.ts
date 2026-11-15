@@ -36,7 +36,7 @@ import { SplitVerticalButton } from './SplitVerticalButton.tsx'
 import { ClosePaneButton } from './ClosePaneButton.tsx'
 import { FullscreenPaneButton } from './FullscreenPaneButton.tsx'
 import { registryHostFace } from './pane-host.ts'
-import { mainSessionId, openMainSession, type SessionListLike } from './pane-session.ts'
+import { mainSessionId, openMainSession } from './pane-session.ts'
 import { resolveSessionIdFromRow, SESSION_DRAG_TYPE, sessionRowOf } from './session-row.ts'
 import { createPaneLayoutStore, allLeaves, type PaneLayoutState } from './pane-layout-store.ts'
 import { en, zh, type PaneKey } from './locales.ts'
@@ -86,8 +86,15 @@ export function apply(ctx: ClientContext): void {
     // This plugin's own conversation occupant must never win inside a pane —
     // dropping it is what makes the stock ConversationRoot the pane's root.
     excluded: entry => entry.component === (PaneWorkspace as unknown),
+    // A hero inside a pane opened a Session (new or a reused blank): it lands
+    // in THAT pane, which takes focus (docs/ARCHITECTURE.md 焦点模型).
+    onPaneSessionOpened: (paneId, sessionId) => {
+      if (paneTree().root.type === 'leaf') return
+      paneActions.setPaneSession(paneId, sessionId)
+      paneActions.focusPane(paneId)
+    },
   }
-  const currentSession = () => mainSessionId(ctx.sessions.list.getSnapshot() as unknown as SessionListLike)
+  const currentSession = () => mainSessionId(ctx.sessions.list.getSnapshot())
 
   /** The header affordances operate on the shared tree's FOCUSED pane. */
   const splitFocused: PaneWorkspaceInjected['splitFocused'] = (direction) => {

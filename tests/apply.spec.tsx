@@ -48,7 +48,7 @@ async function bench() {
 
 describe('ui-panes apply', () => {
   it('declares only the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale', 'sessions', 'uiSession'])
+    expect(inject).toEqual(['slots', 'locale', 'sessions', 'uiSession', 'uiWorkspace'])
   })
 
   it('occupies the conversation slot permanently and owns one shared pane tree', async () => {

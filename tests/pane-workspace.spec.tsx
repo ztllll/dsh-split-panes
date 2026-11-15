@@ -31,15 +31,18 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
 // Framework kit members the workspace never reads; stub as never-called.
 const neverHook = (() => { throw new Error('workspace must not read this seat') }) as never
 
+/** rc.3 list shape: the main-view selection is the row with `retainedBy.mainView > 0`. */
 function sessionState(current: string | undefined, extra: Record<string, { blank?: boolean }> = {}) {
+  const rows: Record<string, { id: string; displayTitle?: string; blank?: boolean }> = {
+    s1: { id: 's1', displayTitle: 'Fix the build', blank: false },
+    s2: { id: 's2', displayTitle: 'Second', blank: false },
+    ...Object.fromEntries(Object.entries(extra).map(([id, row]) => [id, { id, ...row }])),
+  }
   return {
-    ids: ['s1', 's2'],
-    byId: {
-      s1: { id: 's1', displayTitle: 'Fix the build', running: false, blank: false, updatedAt: 1 },
-      s2: { id: 's2', displayTitle: 'Second', running: false, blank: false, updatedAt: 1 },
-      ...extra,
-    },
-    current,
+    ids: Object.keys(rows),
+    byId: Object.fromEntries(Object.entries(rows).map(([id, row]) => [id, {
+      running: false, updatedAt: 1, ...row, retainedBy: id === current ? { mainView: 1 } : {},
+    }])),
     phase: 'ready',
   }
 }

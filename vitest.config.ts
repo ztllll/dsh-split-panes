@@ -24,10 +24,11 @@ export default defineConfig({
     alias: {
       // Symmetric with tsconfig.json paths (Vite reads the project tsconfig,
       // but keep the explicit form as the authoritative source).
-      '@deepseek-ai/cordis': `${core}/vendor/cordis/src`,
+      '@deepseek-ai/cordis': `${core}/vendor/cordis/lib/index.js`,
       '@deepseek-ai/dsh-client-store': `${core}/packages/client/store/src/index.ts`,
       '@deepseek-ai/dsh-client-ui-slots': `${core}/packages/client/ui-slots/src/index.ts`,
-      '@deepseek-ai/dsh-client-ui-primitives': `${core}/packages/client/ui-primitives/src/index.ts`,
+      // Test-only: the real package pulls the whole markdown/highlight stack.
+      '@deepseek-ai/dsh-client-ui-primitives': fileURLToPath(new URL('./tests/stubs/ui-primitives.tsx', import.meta.url)),
       '@deepseek-ai/dsh-client-locale/client': `${core}/packages/client/locale/src/client/index.ts`,
       '@deepseek-ai/dsh-client-ui-layout/client': `${core}/packages/client/ui-layout/src/client/index.ts`,
       '@deepseek-ai/dsh-client-ui-renderer/client': `${core}/packages/client/ui-renderer/src/client/index.ts`,
