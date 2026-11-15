@@ -50,6 +50,7 @@ function setup() {
 const crash = new Error('boom')
 
 describe('pane host election', () => {
+  // The core abdication happens BEFORE the pane host exists — the plugin-reload case.
   it('a pane abdication never resurrects an entry the core already abdicated', () => {
     const { core, base, adapter, absent } = setup()
     core.register({ name: 'panes.test.single', priority: 0 }, A)
@@ -83,22 +84,6 @@ describe('pane host election', () => {
       coreAbdicated: registryCoreAbdicated({ _core: core }),
     })
     pane.reportEntryError('panes.test.single', a, crash, { abdicate: true })
-    expect(pane.entriesOfSlot('panes.test.single').map(e => e.component)).toEqual([C])
-  })
-
-  it('core abdications that predate the plugin (e.g. plugin reload) are honoured', () => {
-    const { core, base, adapter, absent } = setup()
-    core.register({ name: 'panes.test.single', priority: 0 }, A)
-    core.register({ name: 'panes.test.single', priority: 1 }, B)
-    core.register({ name: 'panes.test.single', priority: 2 }, C)
-    const [a, b] = core.entries('panes.test.single')
-    // Abdicated BEFORE the plugin (re)applies: no listener was there to see it.
-    core.reportEntryError('panes.test.single', a!, crash, { abdicate: true })
-    const pane = createPaneHost({
-      base, adapter: adapter as never, binding: absent as never,
-      coreAbdicated: registryCoreAbdicated({ _core: core }),
-    })
-    pane.reportEntryError('panes.test.single', b!, crash, { abdicate: true })
     expect(pane.entriesOfSlot('panes.test.single').map(e => e.component)).toEqual([C])
   })
 
