@@ -1,10 +1,12 @@
-[![dshfind](https://dshfind.com/api/card/lehhair/dsh-split-panes?lang=zh)](https://dshfind.com/zh/plugins/lehhair/dsh-split-panes?ref=badge)
+# dsh-split-panes（rc.3 适配版）
 
-# dsh-split-panes
+> 本仓库 fork 自 [lehhair/dsh-split-panes](https://github.com/lehhair/dsh-split-panes)（BSD-3-Clause），适配 **dsh `0.2.2-rc.3`**。
+> 上游最新 v0.6.5 基于 `0.1.5-alpha.2`，在 rc.3 上会让会话区渲染为空白。上游若发布 rc.3 兼容版，请优先使用上游版本。
+> 详细改动见 [CHANGELOG.md](CHANGELOG.md)。
 
 DSH 对话分屏插件（PiUI 风格）：把信息流分成多个可独立操作的窗格，每个窗格绑定自己的会话——分屏/层叠、四向拖拽分配、侧边栏会话拖入。**每个窗格都跑核心自己的渲染器**，插件只提供容器、焦点路由与交互。
 
-**免补丁**：不修改、不重打包核心。插件把核心的 slot 渲染器（`createSlotRenderer`）**逐字节 vendor** 进仓库，给每个 pane 构造一个 **pane 作用域的 host**（`SlotRendererHost` 是公开接口），于是核心的 outlet 用这个 pane 的 session binding 渲染——header / 消息流 / composer / hero 全部是核心代码。
+**免补丁**：不修改、不重打包核心。插件把核心的 slot 渲染器（`createSlotRenderer`）**逐字节 vendor** 进仓库，给每个 pane 构造一个 **pane 作用域的 host**（`SlotRendererHost` 是公开接口；rc.3 起另读 registry 的两处 TS-private 成员，见 `docs/ARCHITECTURE.md` §1.2），于是核心的 outlet 用这个 pane 的 session binding 渲染——header / 消息流 / composer / hero 全部是核心代码。
 
 ## 功能
 
@@ -39,14 +41,16 @@ renderRoot(host)
 
 ## 安装
 
+从 [Releases](https://github.com/ztllll/dsh-split-panes/releases) 下载 `dsh-external-dsh-split-panes.tgz`，或从源码：
+
 ```sh
-git clone https://github.com/lehhair/dsh-split-panes.git
+git clone https://github.com/ztllll/dsh-split-panes.git
 dsh plugin --profile web add link:/path/to/dsh-split-panes
 ```
 
 重启 `dsh web` 即可使用（会话 header 出现分屏按钮）。
 
-**版本**：开发与测试基线是核心 **`0.1.5-alpha.2`**（vendor 的渲染器副本来自该版本；alpha.2 引入的 `main` 面板模型已适配）。`0.1.2-rc.1` 也实测可用（分屏 / 双 pane 各自会话 / 焦点路由 / 拖拽），0.1.5 才有的东西（右侧栏等）在该版本上不存在，插件优雅降级。
+**版本**：本版（0.7.x）的开发与测试基线是核心 **`0.2.2-rc.3`**（vendor 的渲染器副本来自该版本，`core-pin.json` 钉死）。**不兼容** rc.3 之前的核心：旧核心请用上游 v0.6.5；核心缺少所需成员时插件加载即报 `unsupported core version`，不会静默错渲染。
 
 上游跟踪：`.github/workflows/upstream-track.yml` 每 6 小时检测核心新 release，**只在**上游真正触碰本插件消费的接触面（`ui-renderer` 渲染器文件 + `ui-conversation`/`ui-session`/`ui-layout` 契约 + 图标源）时才开升级 PR（全绿才开）；发版仍由人工合 PR 后执行。钉死的核心版本在 `core-pin.json`（`build-release` 读它生成发布产物）。本地一键：`pnpm run upgrade:core dsh-vX.Y.Z`。想验证"开 PR"那半边链路（定时路径平时走不到），手动 dispatch 加 `force: true`。
 
