@@ -1,0 +1,68 @@
+# Run the full plugin gate (vendor drift, icons, typecheck, tests, build,
+# bundle portability) against the pinned deepseek-harness on every push and
+# pull request. Same harness layout as build-release.yml; no release upload.
+name: check
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          path: dsh-split-panes
+
+      - name: Read the pinned core ref
+        id: core
+        working-directory: dsh-split-panes
+        run: |
+          node -e "const pin=require('./core-pin.json');console.log('ref='+pin.ref);console.log('tag='+pin.tag)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout deepseek-harness
+        uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: ${{ steps.core.outputs.ref }}
+          path: dsh2026/deepseek-harness
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: dsh2026/deepseek-harness/pnpm-lock.yaml
+
+      - name: Build harness
+        working-directory: dsh2026/deepseek-harness
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build:lib
+
+      - name: Install plugin
+        working-directory: dsh-split-panes
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Upload resolved lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lock
+          path: dsh-split-panes/pnpm-lock.yaml
+
+      - name: Check
+        working-directory: dsh-split-panes
+        run: pnpm run check
