@@ -13,8 +13,8 @@ Fork of [lehhair/dsh-split-panes](https://github.com/lehhair/dsh-split-panes) v0
 - **Icons.** Extracted verbatim from rc.3's dockkit / right-side-bar glyphs. The close icon is renamed `IconCloseOutlineRegular`.
 
 ### Changed
-- `peerDependencies` add `@deepseek-ai/cordis`; dev-only `@deepseek-ai/dsh-client-ui-context-menu` link for harness tests.
-- CI: new `check.yml` runs the full gate on every push and pull request.
+- Dev-only `@deepseek-ai/dsh-client-ui-context-menu` link for the harness tests.
+- CI: new `check.yml` runs the full gate on every push and pull request; all workflows use Node 24 (rc.3 requires `node >=24.9.0`).
 
 ### Removed
 - `root-binding.ts`, `pane-store.ts`, and the pre-rc.3 session-selection path.

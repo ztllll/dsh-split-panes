@@ -46,18 +46,8 @@ async function bench() {
     developerTools: { enabled: createSnapshotStore(false), setEnabled: async () => {} },
     get: () => stubConfigForm().scope,
   } as never)
-  // rc.3 ui-workspace semantics: the main view retains the opened Session.
-  let mainReference: { release(): void } | undefined
-  const replaceMain = (id: SessionId, beforeOpen?: (id: SessionId) => void): void => {
-    const next = runtime.sessions.retain(id, { source: 'mainView' })
-    beforeOpen?.(id)
-    mainReference?.release()
-    mainReference = next
-  }
-  runtime.ctx.provide('uiWorkspace', {
-    openSession: async (id: SessionId) => { replaceMain(id) },
-    openWorkspace: async (_workspaceId: unknown, beforeOpen: (id: SessionId) => void) => { replaceMain(FIRST, beforeOpen) },
-  } as never)
+  const unused = () => { throw new Error('pane render tests never navigate') }
+  runtime.ctx.provide('uiWorkspace', { openSession: unused, openWorkspace: unused } as never)
   for (const [id, title] of [[FIRST, 'Alpha session'], [SECOND, 'Beta session']] as const) {
     await runtime.sessions.add({
       id,
