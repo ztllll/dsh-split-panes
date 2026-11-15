@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { SlotCore, type SlotComponent, type SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
-import { createPaneHost } from '../src/client/pane-host.ts'
+import { createPaneHost, registryCoreAbdicated } from '../src/client/pane-host.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -55,15 +55,13 @@ describe('pane host election', () => {
     core.register({ name: 'panes.test.single', priority: 0 }, A)
     core.register({ name: 'panes.test.single', priority: 1 }, B)
     core.register({ name: 'panes.test.single', priority: 2 }, C)
-    const mirrored = new WeakSet<object>()
-    core.onEntryError((_k, entry, _e, info) => { if (info.abdicated) mirrored.add(entry) })
     const [a, b, c] = core.entries('panes.test.single')
     core.reportEntryError('panes.test.single', a!, crash, { abdicate: true })
     expect(core.entriesOfSlot('panes.test.single')).toEqual([b])
 
     const pane = createPaneHost({
       base, adapter: adapter as never, binding: absent as never,
-      coreAbdicated: entry => mirrored.has(entry),
+      coreAbdicated: registryCoreAbdicated({ _core: core }),
     })
     expect(pane.entriesOfSlot('panes.test.single')).toEqual([b])
     pane.reportEntryError('panes.test.single', b!, crash, { abdicate: true })
@@ -76,17 +74,31 @@ describe('pane host election', () => {
     const { core, base, adapter, absent } = setup()
     core.register({ name: 'panes.test.single', priority: 0 }, B)
     core.register({ name: 'panes.test.single', priority: 1 }, C)
-    const mirrored = new WeakSet<object>()
-    core.onEntryError((_k, entry, _e, info) => { if (info.abdicated) mirrored.add(entry) })
     const [b] = core.entries('panes.test.single')
     core.reportEntryError('panes.test.single', b!, crash, { abdicate: true })
     core.register({ name: 'panes.test.single', priority: -1 }, A)
     const a = core.entries('panes.test.single').find(e => e.component === A)!
     const pane = createPaneHost({
       base, adapter: adapter as never, binding: absent as never,
-      coreAbdicated: entry => mirrored.has(entry),
+      coreAbdicated: registryCoreAbdicated({ _core: core }),
     })
     pane.reportEntryError('panes.test.single', a, crash, { abdicate: true })
+    expect(pane.entriesOfSlot('panes.test.single').map(e => e.component)).toEqual([C])
+  })
+
+  it('core abdications that predate the plugin (e.g. plugin reload) are honoured', () => {
+    const { core, base, adapter, absent } = setup()
+    core.register({ name: 'panes.test.single', priority: 0 }, A)
+    core.register({ name: 'panes.test.single', priority: 1 }, B)
+    core.register({ name: 'panes.test.single', priority: 2 }, C)
+    const [a, b] = core.entries('panes.test.single')
+    // Abdicated BEFORE the plugin (re)applies: no listener was there to see it.
+    core.reportEntryError('panes.test.single', a!, crash, { abdicate: true })
+    const pane = createPaneHost({
+      base, adapter: adapter as never, binding: absent as never,
+      coreAbdicated: registryCoreAbdicated({ _core: core }),
+    })
+    pane.reportEntryError('panes.test.single', b!, crash, { abdicate: true })
     expect(pane.entriesOfSlot('panes.test.single').map(e => e.component)).toEqual([C])
   })
 

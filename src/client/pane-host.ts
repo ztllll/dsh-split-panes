@@ -37,7 +37,7 @@ export interface PaneHostOptions {
   readonly excluded?: ((entry: StoredEntry) => boolean) | undefined
   /** Diagnostic hook for pane-side occupant crashes. */
   readonly onCrash?: ((key: string, entry: StoredEntry, error: unknown) => void) | undefined
-  /** Entries the CORE abdicated (mirrored from `ctx.slots.onEntryError`). */
+  /** Entries the CORE abdicated (see {@link registryCoreAbdicated}). */
   readonly coreAbdicated?: ((entry: StoredEntry) => boolean) | undefined
   /**
    * Pane-local view of a Factory's inject face (e.g. to learn which Session a
@@ -70,6 +70,23 @@ export function registryHostFace(slots: unknown): SlotRendererHost {
     throw new Error('[dsh-split-panes] this dsh core exposes no slot host face (unsupported core version)')
   }
   return face.call(slots)
+}
+
+/**
+ * The core's own abdication set, read live from the registry's SlotCore
+ * (`_core.abdicated`, TS-private like `hostFace()`; same documented exception).
+ * Reading the set itself — rather than mirroring `onEntryError` — keeps it
+ * complete across plugin reloads and for abdications that predate this plugin.
+ * @param slots - the `ctx.slots` SlotRegistry.
+ * @returns membership test for core-abdicated entries.
+ * @throws when this core build has no such set.
+ */
+export function registryCoreAbdicated(slots: unknown): (entry: StoredEntry) => boolean {
+  const set = (slots as { _core?: { abdicated?: unknown } })._core?.abdicated
+  if (!(set instanceof WeakSet)) {
+    throw new Error('[dsh-split-panes] this dsh core exposes no slot abdication set (unsupported core version)')
+  }
+  return entry => set.has(entry)
 }
 
 /** The cell one entry occupies under its slot's kind (mirrors SlotCore.entriesOfSlot). */

@@ -11,31 +11,20 @@ import type { SlotRendererHost, StoredFactory } from '@deepseek-ai/dsh-client-ui
 import { createPaneHost } from '../src/client/pane-host.ts'
 import { paneFactoryInject } from '../src/client/PaneConversation.tsx'
 
-/** Session list whose main view is `main` (retainedBy.mainView > 0). */
-function listWith(main: string | undefined, ids: string[]) {
-  return {
-    ids,
-    byId: Object.fromEntries(ids.map(id => [id, { id, retainedBy: id === main ? { mainView: 1 } : {} }])),
-  }
-}
-
 /**
  * Mirrors rc.3: ui-conversation's selectWorkspace calls
  * `uiWorkspace.openWorkspace(id, beforeOpen)` synchronously; openWorkspace
  * runs `beforeOpen(sessionId)` only when it actually opens that Session and
  * resolves WITHOUT calling it when a later navigation superseded the request.
  */
-function harness(opensSession: string, initialMain: string | undefined, superseded = false) {
-  let list = listWith(initialMain, [opensSession, 'other'])
+function harness(opensSession: string, superseded = false) {
   const uiWorkspace = {
     async openWorkspace(_id: unknown, beforeOpen?: (id: string) => void) {
       await Promise.resolve()
-      if (superseded) { list = listWith('other', [opensSession, 'other']); return }
-      beforeOpen?.(opensSession)
-      list = listWith(opensSession, [opensSession, 'other'])
+      if (!superseded) beforeOpen?.(opensSession)
     },
   }
-  const ctx = { sessions: { list: { getSnapshot: () => list } }, get: (name: string) => (name === 'uiWorkspace' ? uiWorkspace : undefined) }
+  const ctx = { get: (name: string) => (name === 'uiWorkspace' ? uiWorkspace : undefined) }
   const content: StoredFactory = {
     name: 'conversation.content',
     component: () => null,
@@ -64,28 +53,28 @@ function harness(opensSession: string, initialMain: string | undefined, supersed
 
 describe('pane hero adoption', () => {
   it('binds a REUSED blank Session (selection unchanged) back to the originating pane', async () => {
-    const { host, adopted } = harness('blank-S', 'blank-S')
+    const { host, adopted } = harness('blank-S')
     const face = host.factoryOf('conversation.content')!.inject!() as { selectWorkspace: (id: string) => Promise<void> }
     await face.selectWorkspace('ws')
     expect(adopted).toEqual([['pane-2', 'blank-S']])
   })
 
   it('binds a newly created Session back to the originating pane', async () => {
-    const { host, adopted } = harness('new-N', 'other')
+    const { host, adopted } = harness('new-N')
     const face = host.factoryOf('conversation.content')!.inject!() as { selectWorkspace: (id: string) => Promise<void> }
     await face.selectWorkspace('ws')
     expect(adopted).toEqual([['pane-2', 'new-N']])
   })
 
-  it('a SUPERSEDED request binds nothing, even though the selection moved meanwhile', async () => {
-    const { host, adopted } = harness('new-N', 'blank-S', true)
+  it('a SUPERSEDED request binds nothing', async () => {
+    const { host, adopted } = harness('new-N', true)
     const face = host.factoryOf('conversation.content')!.inject!() as { selectWorkspace: (id: string) => Promise<void> }
     await face.selectWorkspace('ws')
     expect(adopted).toEqual([])
   })
 
   it('identity-keyed Factory members still reach the core definition', () => {
-    const { host, calls, content } = harness('x', undefined)
+    const { host, calls, content } = harness('x')
     const copy = host.factoryOf('conversation.content')!
     expect(copy).not.toBe(content)
     expect(host.factoryOf('conversation.content')).toBe(copy)
