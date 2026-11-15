@@ -21,7 +21,7 @@ import type {
   HostObservable, SlotRendererHost, StandardSourceBinding, StoredEntry,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import { createPaneHost } from './pane-host.ts'
-import { mainSessionId, retainPaneSession } from './pane-session.ts'
+import { retainPaneSession } from './pane-session.ts'
 import { createSlotRenderer } from './vendor/renderer/scoped-slots.tsx'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
@@ -36,6 +36,8 @@ export interface PaneRenderDeps {
   readonly baseHost: () => SlotRendererHost
   /** Entries never elected in a pane (this plugin's own conversation shadow). */
   readonly excluded: (entry: StoredEntry) => boolean
+  /** Entries the core abdicated (mirrored supervision channel). */
+  readonly coreAbdicated: (entry: StoredEntry) => boolean
   /** A pane's hero opened `sessionId`: bind it back to that pane. */
   readonly onPaneSessionOpened: (paneId: string, sessionId: SessionId) => void
 }
@@ -45,6 +47,29 @@ export interface PaneRenderDeps {
  * REUSED blank, which leaves the global selection unchanged and so is
  * invisible to the selection-routing effect.
  */
+type OpenWorkspace = (workspaceId: unknown, beforeOpen?: (id: SessionId) => void, ...rest: unknown[]) => Promise<void>
+
+/**
+ * Run `start` while `uiWorkspace.openWorkspace` is shadowed by a wrapper that
+ * chains `capture` onto the caller's `beforeOpen`. The shadow is an own
+ * property removed again before `start` returns (the navigation call is
+ * synchronous), so no other caller ever sees it.
+ */
+function withOpenedCapture<T>(ctx: Context, capture: (id: SessionId) => void, start: () => T): T {
+  const navigation = ctx.get('uiWorkspace') as { openWorkspace?: OpenWorkspace } | undefined
+  const original = navigation?.openWorkspace
+  if (navigation === undefined || typeof original !== 'function') return start()
+  const hadOwn = Object.hasOwn(navigation, 'openWorkspace')
+  navigation.openWorkspace = (workspaceId, beforeOpen, ...rest) =>
+    original.call(navigation, workspaceId, (id: SessionId) => { beforeOpen?.(id); capture(id) }, ...rest)
+  try {
+    return start()
+  } finally {
+    if (hadOwn) navigation.openWorkspace = original
+    else delete navigation.openWorkspace
+  }
+}
+
 export function paneFactoryInject(
   ctx: Context,
   paneId: string,
@@ -55,11 +80,16 @@ export function paneFactoryInject(
     if (name !== 'conversation.content' || typeof selectWorkspace !== 'function') return face
     return {
       ...face,
-      // On resolve, ui-workspace's replaceMain has retained the opened Session
-      // as the main view (new or reused), so the main Session IS the result.
+      // Success is taken from rc.3's documented signal, not from resolution:
+      // `uiWorkspace.openWorkspace` also resolves when a later navigation
+      // SUPERSEDES it, but its `beforeOpen(sessionId)` runs only for the
+      // Session it actually opens (new or reused blank). ui-conversation
+      // calls openWorkspace synchronously inside selectWorkspace, so the
+      // pane chains its own capture onto `beforeOpen` for exactly that call.
       selectWorkspace: async (workspaceId: unknown) => {
-        const result: unknown = await (selectWorkspace as (id: unknown) => Promise<unknown>)(workspaceId)
-        const opened = mainSessionId(ctx.sessions.list.getSnapshot())
+        let opened: SessionId | undefined
+        const result = await withOpenedCapture(ctx, (id) => { opened = id }, () =>
+          (selectWorkspace as (id: unknown) => Promise<unknown>)(workspaceId))
         if (opened !== undefined) report(paneId, opened)
         return result
       },
@@ -117,6 +147,7 @@ export const PaneConversation = memo(function PaneConversation({
     adapter,
     binding,
     excluded: deps.excluded,
+    coreAbdicated: deps.coreAbdicated,
     wrapFactoryInject: paneFactoryInject(ctx, paneId, deps.onPaneSessionOpened),
     onCrash: (key, entry, error) => {
       console.error(`[dsh-split-panes] pane ${paneId} occupant crashed in '${key}':`, error, entry.options)

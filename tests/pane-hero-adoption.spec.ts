@@ -19,16 +19,29 @@ function listWith(main: string | undefined, ids: string[]) {
   }
 }
 
-function harness(opensSession: string, initialMain: string | undefined) {
+/**
+ * Mirrors rc.3: ui-conversation's selectWorkspace calls
+ * `uiWorkspace.openWorkspace(id, beforeOpen)` synchronously; openWorkspace
+ * runs `beforeOpen(sessionId)` only when it actually opens that Session and
+ * resolves WITHOUT calling it when a later navigation superseded the request.
+ */
+function harness(opensSession: string, initialMain: string | undefined, superseded = false) {
   let list = listWith(initialMain, [opensSession, 'other'])
-  const ctx = { sessions: { list: { getSnapshot: () => list } } }
+  const uiWorkspace = {
+    async openWorkspace(_id: unknown, beforeOpen?: (id: string) => void) {
+      await Promise.resolve()
+      if (superseded) { list = listWith('other', [opensSession, 'other']); return }
+      beforeOpen?.(opensSession)
+      list = listWith(opensSession, [opensSession, 'other'])
+    },
+  }
+  const ctx = { sessions: { list: { getSnapshot: () => list } }, get: (name: string) => (name === 'uiWorkspace' ? uiWorkspace : undefined) }
   const content: StoredFactory = {
     name: 'conversation.content',
     component: () => null,
     scope: 'session-maybe',
-    // Stock ui-conversation inject: navigation retains the target as main view.
     inject: () => ({
-      selectWorkspace: async () => { list = listWith(opensSession, [opensSession, 'other']) },
+      selectWorkspace: (id: unknown) => uiWorkspace.openWorkspace(id, () => {}),
     }),
   }
   const calls: string[] = []
@@ -62,6 +75,13 @@ describe('pane hero adoption', () => {
     const face = host.factoryOf('conversation.content')!.inject!() as { selectWorkspace: (id: string) => Promise<void> }
     await face.selectWorkspace('ws')
     expect(adopted).toEqual([['pane-2', 'new-N']])
+  })
+
+  it('a SUPERSEDED request binds nothing, even though the selection moved meanwhile', async () => {
+    const { host, adopted } = harness('new-N', 'blank-S', true)
+    const face = host.factoryOf('conversation.content')!.inject!() as { selectWorkspace: (id: string) => Promise<void> }
+    await face.selectWorkspace('ws')
+    expect(adopted).toEqual([])
   })
 
   it('identity-keyed Factory members still reach the core definition', () => {

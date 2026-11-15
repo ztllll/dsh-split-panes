@@ -80,12 +80,20 @@ export function apply(ctx: ClientContext): void {
   // Every pane renders against an overlay of the registry's OWN host face, so
   // root standard data, store instances and Factory machinery are shared with
   // the main view instead of being re-implemented here.
+  // The core keeps its abdication set private; mirror it from the public
+  // supervision channel so pane elections never resurrect a retired entry.
+  // (Abdications only happen while rendering, i.e. after this plugin applied.)
+  const coreAbdicated = new WeakSet<object>()
+  ctx.effect(() => ctx.slots.onEntryError((_key, registration, _error, info) => {
+    if (info.abdicated) coreAbdicated.add(registration)
+  }), 'ui-panes: mirror core abdications')
   const deps: PaneRenderDeps = {
     ctx,
     baseHost: () => registryHostFace(ctx.slots),
     // This plugin's own conversation occupant must never win inside a pane —
     // dropping it is what makes the stock ConversationRoot the pane's root.
     excluded: entry => entry.component === (PaneWorkspace as unknown),
+    coreAbdicated: entry => coreAbdicated.has(entry),
     // A hero inside a pane opened a Session (new or a reused blank): it lands
     // in THAT pane, which takes focus (docs/ARCHITECTURE.md 焦点模型).
     onPaneSessionOpened: (paneId, sessionId) => {

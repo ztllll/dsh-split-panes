@@ -37,6 +37,8 @@ export interface PaneHostOptions {
   readonly excluded?: ((entry: StoredEntry) => boolean) | undefined
   /** Diagnostic hook for pane-side occupant crashes. */
   readonly onCrash?: ((key: string, entry: StoredEntry, error: unknown) => void) | undefined
+  /** Entries the CORE abdicated (mirrored from `ctx.slots.onEntryError`). */
+  readonly coreAbdicated?: ((entry: StoredEntry) => boolean) | undefined
   /**
    * Pane-local view of a Factory's inject face (e.g. to learn which Session a
    * hero's `selectWorkspace` opened). Omitted: Factories render unchanged.
@@ -103,12 +105,11 @@ export function createPaneHost(options: PaneHostOptions): SlotRendererHost {
     }
   }
 
+  const coreAbdicated = options.coreAbdicated ?? (() => false)
+
   /**
-   * Core election (SlotCore.entriesOfSlot) with pane-hidden entries also
-   * skipped. The core ledger is already priority-sorted, so the head of each
-   * cell is its first entry that neither the core nor this pane retired. An
-   * entry the core abdicated is exactly one that precedes its cell's core
-   * winner in ledger order.
+   * SlotCore.entriesOfSlot over the priority-sorted ledger, skipping entries
+   * the core abdicated (mirrored set) and entries this pane hides.
    */
   const winnersOf = (key: string): readonly StoredEntry[] => {
     const all = base.entriesOf(key)
@@ -117,17 +118,12 @@ export function createPaneHost(options: PaneHostOptions): SlotRendererHost {
     if (!all.some(hidden)) return base.entriesOfSlot(key)
     const kind = base.specOf(key)?.kind ?? 'single'
     if (kind === 'chain') return all.filter(entry => !hidden(entry))
-    const coreHead = new Map<string | undefined, StoredEntry>()
-    for (const entry of base.entriesOfSlot(key)) coreHead.set(cellOf(kind, entry), entry)
-    const reachedCoreHead = new Set<string | undefined>()
     const seen = new Set<string | undefined>()
     const heads: StoredEntry[] = []
     for (const entry of all) {
+      if (coreAbdicated(entry) || hidden(entry)) continue
       const cell = cellOf(kind, entry)
-      if (coreHead.get(cell) === entry) reachedCoreHead.add(cell)
-      // Core-abdicated: ahead of the cell's core winner (or the cell has none).
-      if (!reachedCoreHead.has(cell)) continue
-      if (seen.has(cell) || hidden(entry)) continue
+      if (seen.has(cell)) continue
       seen.add(cell)
       heads.push(entry)
     }
@@ -197,7 +193,7 @@ function factoryOverrides(
 ): Partial<SlotRendererHost> {
   if (wrap === undefined) return {}
   const copies = new WeakMap<StoredFactory, StoredFactory>()
-  const originals = new WeakMap<StoredFactory, StoredFactory>()
+  const originals = new WeakMap<object, StoredFactory>()
   const original = (definition: StoredFactory): StoredFactory => originals.get(definition) ?? definition
   const copyOf = (definition: StoredFactory): StoredFactory => {
     const inject = definition.inject
@@ -224,10 +220,7 @@ function factoryOverrides(
     retainFactoryOccurrence: (definition, occurrence) =>
       base.retainFactoryOccurrence(original(definition), occurrence),
     reportFactoryError: (name, registration, error) => {
-      const target = 'scope' in registration && !('options' in registration)
-        ? original(registration)
-        : registration
-      base.reportFactoryError(name, target, error)
+      base.reportFactoryError(name, originals.get(registration) ?? registration, error)
     },
   }
 }
