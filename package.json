@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-split-panes",
-  "description": "DSH split-pane conversation plugin: PiUI-style multi-pane conversation surface — split/stack panes, per-pane sessions, sidebar session drag & drop, single-row fused header. No core patch required: each pane runs the core's own slot renderer against a pane-scoped host.",
+  "description": "DSH split-pane conversation plugin: PiUI-style multi-pane conversation surface \u2014 split/stack panes, per-pane sessions, sidebar session drag & drop, single-row fused header. No core patch required: each pane runs the core's own slot renderer against a pane-scoped host.",
   "version": "0.6.5",
   "private": true,
   "type": "module",
@@ -64,7 +64,6 @@
     "@deepseek-ai/dsh-api-session-controller": "link:../dsh2026/deepseek-harness/packages/api/session-controller",
     "@deepseek-ai/dsh-client-locale": "link:../dsh2026/deepseek-harness/packages/client/locale",
     "@deepseek-ai/dsh-client-store": "link:../dsh2026/deepseek-harness/packages/client/store",
-    "@deepseek-ai/dsh-client-test-runtime": "link:../dsh2026/deepseek-harness/packages/test-support/client-runtime",
     "@deepseek-ai/dsh-client-ui-layout": "link:../dsh2026/deepseek-harness/packages/client/ui-layout",
     "@deepseek-ai/dsh-client-ui-primitives": "link:../dsh2026/deepseek-harness/packages/client/ui-primitives",
     "@deepseek-ai/dsh-client-ui-renderer": "link:../dsh2026/deepseek-harness/packages/client/ui-renderer",

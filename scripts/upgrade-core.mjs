@@ -53,6 +53,7 @@ const CLIENT_BUNDLE = join(PLUGIN_ROOT, 'lib/client.js')
 export const CONTACT_SURFACES = [
   'packages/client/ui-renderer/src/client/bind.ts',
   'packages/client/ui-renderer/src/client/bindings.tsx',
+  'packages/client/ui-renderer/src/client/errors.ts',
   'packages/client/ui-renderer/src/client/scoped-slots.tsx',
   'packages/client/ui-conversation/src/client/contract/',
   'packages/client/ui-conversation/src/client/skeleton/',
