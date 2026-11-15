@@ -105,6 +105,7 @@ function mount(initialCurrent: string | undefined = 's1') {
       useSessionRetainInfo={neverHook}
       useSessionAccess={neverHook}
       usePanelInfo={neverHook}
+      useContextMenu={neverHook}
       openSession={openSession}
       splitWithNew={splitWithNew}
       splitFocused={splitFocused}

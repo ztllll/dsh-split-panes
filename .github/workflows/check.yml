@@ -55,13 +55,7 @@ jobs:
 
       - name: Install plugin
         working-directory: dsh-split-panes
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Upload resolved lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: pnpm-lock
-          path: dsh-split-panes/pnpm-lock.yaml
+        run: pnpm install --frozen-lockfile
 
       - name: Check
         working-directory: dsh-split-panes
